@@ -1,71 +1,123 @@
-# extension README
+# LeetCode Helper VS Code Extension
 
-This is the README for your extension "extension". After writing up a brief description, we recommend including the following sections.
+A Visual Studio Code extension that helps you solve LeetCode problems with integrated testing and multiple language support.
 
 ## Features
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+- 🔍 Load LeetCode problems directly in VS Code using problem slugs
+- 💻 Support for multiple programming languages (C++ and Python)
+- ✅ Automated test case generation and execution
+- 📊 Visual test results with detailed feedback
+- 🎯 Side-by-side problem description and solution editor
+- 🔄 Real-time test case validation
+- 🎨 Syntax highlighting and language-specific features
 
-For example if there is an image subfolder under your extension project workspace:
+## Installation
 
-\!\[feature X\]\(images/feature-x.png\)
+1. Clone this repository
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+3. Install required Python packages:
+   ```bash
+   pip install requests beautifulsoup4
+   ```
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+## Usage
+
+1. Open Command Palette (`Ctrl+Shift+P` or `Cmd+Shift+P` on macOS)
+2. Type "LeetCode Helper" and select the command
+3. Enter the problem slug (e.g., "two-sum" for the Two Sum problem)
+4. The extension will load:
+   - Problem description
+   - Example test cases
+   - Solution templates for C++ and Python
+
+## Writing and Testing Solutions
+
+### C++ Solutions
+- Click "Open in C++" to edit the solution
+- Solution template includes common headers and a basic structure
+- Click "Run C++ Tests" to test your solution against all test cases
+
+### Python Solutions
+- Click "Open in Python" to edit the solution
+- Solution template includes basic structure
+- Click "Run Python Tests" to test your solution against all test cases
+
+## Test Results
+
+The extension provides detailed test results including:
+- Pass/Fail status for each test case
+- Expected vs. Actual output for failed tests
+- Compilation errors (if any)
+- Runtime errors (if any)
+
+## Directory Structure
+
+```
+leetcode-helper/
+├── src/
+│   ├── extension.ts          # Main extension code
+│   ├── script.py            # Problem fetcher script
+│   ├── run_testcases.py     # C++ test runner
+│   └── run_testcases_py.py  # Python test runner
+├── testcases/               # Generated test cases
+└── package.json            # Extension manifest
+```
 
 ## Requirements
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+- Visual Studio Code 1.60.0 or higher
+- Node.js 14.0.0 or higher
+- Python 3.6 or higher
+- G++ compiler for C++ solutions
+- Python interpreter for Python solutions
 
 ## Extension Settings
 
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
-
-For example:
-
 This extension contributes the following settings:
 
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
+* `leetcodeHelper.defaultLanguage`: Set your preferred programming language
+* `leetcodeHelper.testCaseDirectory`: Customize the test case directory location
 
 ## Known Issues
 
-Calling out known issues can help limit users opening duplicate issues against your extension.
+- Large input test cases might cause slight delays in test execution
+- Some complex test cases might require manual formatting
+- Web scraping might fail if LeetCode changes their HTML structure
 
-## Release Notes
+## Contributing
 
-Users appreciate release notes as you update your extension.
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
 
-### 1.0.0
+## License
 
-Initial release of ...
+This project is licensed under the MIT License - see the LICENSE file for details.
 
-### 1.0.1
+## Acknowledgments
 
-Fixed issue #.
+- LeetCode for providing the problem database
+- VS Code Extension API documentation
+- Contributors and users who provide feedback
 
-### 1.1.0
+## Support
 
-Added features X, Y, and Z.
+If you encounter any issues or have suggestions:
+1. Check the [Known Issues](#known-issues) section
+2. Open an issue in the GitHub repository
+3. Provide detailed information about the problem and steps to reproduce
 
----
+## Future Enhancements
 
-## Following extension guidelines
-
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
-
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
-
-## Working with Markdown
-
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
-
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
-
-## For more information
-
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
-
-**Enjoy!**
+- [ ] Add support for more programming languages
+- [ ] Implement problem difficulty filtering
+- [ ] Add code snippets for common algorithms
+- [ ] Integrate with LeetCode account
+- [ ] Add solution submission functionality
+- [ ] Implement problem search and filtering

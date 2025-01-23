@@ -51,19 +51,13 @@ def save_code_snippets_to_files(output, testcase_dir, input_counter):
 using namespace std;
 
 typedef long long ll;
-typedef long double ld;
 
 void solve() {
 
 }
 
 int main() {
-    ios_base::sync_with_stdio(false); cin.tie(NULL); cout.tie(NULL);
-    ll t=1;
-    cin>>t;
-    for (ll it = 1; it <= t; it++) {
-        solve();
-    }
+    solve();
     return 0;
 }
 """

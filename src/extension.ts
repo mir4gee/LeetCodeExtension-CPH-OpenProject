@@ -189,7 +189,7 @@ private async runPythonTests(): Promise<void> {
         return;
     }
 
-    const pythonPath = '/home/mir4ge/testcases/python3.py';
+    const pythonPath = '/home/mir4ge/Desktop/extension/testcases/python3.py';
     if (!fs.existsSync(pythonPath)) {
         vscode.window.showErrorMessage('Python solution file not found.');
         return;
@@ -197,7 +197,7 @@ private async runPythonTests(): Promise<void> {
 
     try {
         const pythonScriptPath = '/home/mir4ge/Desktop/extension/src/run_testcases_py.py';
-        const testcasedirect = '/home/mir4ge/testcases';
+        const testcasedirect = '/home/mir4ge/Desktop/extension/testcases';
 
         const results = await this.runPythonTestRunner(pythonScriptPath, testcasedirect, pythonPath);
         console.log(results);
@@ -214,7 +214,7 @@ private async runPythonTests(): Promise<void> {
         }
     
         try {
-            const filePath = path.join('/home/mir4ge/testcases', language === 'cpp' ? 'c++.cpp' : 'python3.py');
+            const filePath = path.join('/home/mir4ge/Desktop/extension/testcases', language === 'cpp' ? 'c++.cpp' : 'python3.py');
 
             if (!fs.existsSync(filePath)) {
                 vscode.window.showErrorMessage(`No ${language.toUpperCase()} solution file found.`);
@@ -237,7 +237,7 @@ private async runPythonTests(): Promise<void> {
             return;
         }
 
-        const cppPath = '/home/mir4ge/testcases/c++.cpp';
+        const cppPath = '/home/mir4ge/Desktop/extension/testcases/c++.cpp';
         console.log(cppPath);
         if (!fs.existsSync(cppPath)) {
             vscode.window.showErrorMessage('C++ solution file not found.');
@@ -247,7 +247,7 @@ private async runPythonTests(): Promise<void> {
         try {
             const pythonScriptPath = '/home/mir4ge/Desktop/extension/src/run_testcases.py';
             console.log(pythonScriptPath);
-            const testcasedirect = '/home/mir4ge/testcases';
+            const testcasedirect = '/home/mir4ge/Desktop/extension/testcases';
             const results = await this.runPythonTestRunner(pythonScriptPath, testcasedirect, cppPath);
             console.log(results);
             await this.displayTestResults(results);

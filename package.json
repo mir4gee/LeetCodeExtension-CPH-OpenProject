@@ -1,27 +1,83 @@
 {
-  "name": "extension",
-  "displayName": "extension",
-  "description": "",
-  "version": "0.0.1",
+  "name": "cph-leetcode",
+  "displayName": "CPH for LeetCode",
+  "description": "Fetch LeetCode problems, write only the Solution method, and judge it locally: verdicts with time and memory limits, plus stress testing against a brute force.",
+  "version": "1.0.0",
+  "publisher": "mir4gee",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mir4gee/LeetCodeExtension-CPH-OpenProject"
+  },
   "engines": {
     "vscode": "^1.96.0"
   },
   "categories": [
-    "Other"
+    "Programming Languages",
+    "Testing",
+    "Education"
   ],
   "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "extension.helloWorld",
-        "title": "Hello World"
+        "command": "cphLeetcode.openProblem",
+        "title": "Open problem",
+        "category": "LeetCode"
       },
       {
-        "command": "extension.showWebview",
-        "title": "Show Webview"
+        "command": "cphLeetcode.runTests",
+        "title": "Run tests for this file",
+        "category": "LeetCode"
+      },
+      {
+        "command": "cphLeetcode.stressTest",
+        "title": "Stress test this file against brute force",
+        "category": "LeetCode"
       }
-    ]
+    ],
+    "keybindings": [
+      {
+        "command": "cphLeetcode.runTests",
+        "key": "ctrl+alt+b",
+        "mac": "cmd+alt+b",
+        "when": "resourceFilename =~ /^(solution|brute)\\.(cpp|py)$/"
+      }
+    ],
+    "configuration": {
+      "title": "CPH for LeetCode",
+      "properties": {
+        "cphLeetcode.pythonPath": {
+          "type": "string",
+          "default": "python3",
+          "description": "Python 3.9+ used to run the judge and Python solutions."
+        },
+        "cphLeetcode.cppCompiler": {
+          "type": "string",
+          "default": "g++",
+          "description": "C++17 compiler for C++ solutions."
+        },
+        "cphLeetcode.timeLimitMs": {
+          "type": "number",
+          "default": 2000,
+          "minimum": 100,
+          "description": "Time limit per test, in milliseconds (CPU time, plus a wall-clock kill)."
+        },
+        "cphLeetcode.memoryLimitMb": {
+          "type": "number",
+          "default": 256,
+          "minimum": 32,
+          "description": "Address-space limit per test, in megabytes (Linux and macOS)."
+        },
+        "cphLeetcode.stressRounds": {
+          "type": "number",
+          "default": 200,
+          "minimum": 1,
+          "description": "Random tests per stress run."
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
@@ -29,10 +85,10 @@
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src",
-    "test": "vscode-test"
+    "test": "vscode-test",
+    "test:python": "python3 -m pytest -q"
   },
   "devDependencies": {
-    "@types/diff": "^7.0.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "20.x",
     "@types/vscode": "^1.96.0",
@@ -42,8 +98,5 @@
     "@vscode/test-electron": "^2.4.1",
     "eslint": "^9.16.0",
     "typescript": "^5.7.2"
-  },
-  "dependencies": {
-    "diff": "^7.0.0"
   }
 }

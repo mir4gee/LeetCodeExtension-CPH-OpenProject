@@ -1,9 +1,13 @@
-# Change Log
+# Changelog
 
-All notable changes to the "extension" extension will be documented in this file.
+## 1.0.0 (Oct 2026)
 
-Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
+- Write only the `Solution` method: generated C++/Python harness for LeetCode's types, including `ListNode` and `TreeNode`.
+- Judge with AC/WA/TLE/MLE/RE/OLE/CE verdicts, CPU time and memory; process-group kill and `setrlimit` limits.
+- Stress testing against a brute force with a generated, editable `gen.py`.
+- Problems live in `leetcode/<slug>/` in your workspace; re-fetching never overwrites your files.
+- No shell commands, escaped webview content with a CSP, no hard-coded paths.
 
-## [Unreleased]
+## 0.0.1 (Jan 2025)
 
-- Initial release
+- Prototype: fetch examples, compile with g++, compare trimmed output.

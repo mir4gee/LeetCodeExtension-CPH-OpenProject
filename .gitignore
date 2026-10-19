@@ -1,6 +1,9 @@
-out
 dist
+.gitignore
 node_modules
-testcases
+out
+__pycache__/
+.pytest_cache/
+test-workspace/leetcode/
 .vscode-test/
 *.vsix

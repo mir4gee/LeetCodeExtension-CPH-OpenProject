@@ -1,0 +1,6 @@
+[tool.pytest.ini_options]
+pythonpath = ["python", "tests/python"]
+testpaths = ["tests/python"]
+
+[tool.pyright]
+extraPaths = ["python", "tests/python"]

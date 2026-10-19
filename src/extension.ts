@@ -1,424 +1,255 @@
 import * as vscode from 'vscode';
-import { exec } from 'child_process';
-import * as path from 'path';
+import { execFile } from 'child_process';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
-import * as Diff from 'diff';
+import * as path from 'path';
 
-interface WebviewMessage {
-    command: string;
-    text?: string;
-}
+type Lang = 'cpp' | 'python';
+type CliResult = { error?: string | null } & Record<string, unknown>;
 
-interface CodeSnippet {
-    lang: string;
-    langSlug: string;
-    code: string;
-}
+const LANGS: readonly Lang[] = ['cpp', 'python'];
+const EDITABLE = ['solution.cpp', 'solution.py', 'brute.cpp', 'brute.py', 'gen.py', 'tests.json'];
+const PROBLEM_URL = /^https:\/\/leetcode\.com\/problems\/[a-z0-9-]+\/$/;
 
-interface Example {
-    input: string;
-    output: string;
-}
-
-interface LeetCodeData {
-    id: string;
-    title: string;
-    description: string;
-    difficulty: string;
-    examples: Record<string, string>;
-    codeSnippets: Record<string, string>;
-    dataStructures: {
-        'C++': Record<string, string>;
-        'Python3': Record<string, string>;
+function settings() {
+    const c = vscode.workspace.getConfiguration('cphLeetcode');
+    return {
+        python: c.get<string>('pythonPath', 'python3'),
+        compiler: c.get<string>('cppCompiler', 'g++'),
+        timeLimitMs: c.get<number>('timeLimitMs', 2000),
+        memoryLimitMb: c.get<number>('memoryLimitMb', 256),
+        stressRounds: c.get<number>('stressRounds', 200),
     };
 }
 
-const EXTENSION_COMMANDS = {
-    SHOW_WEBVIEW: 'extension.showWebview',
-};
-
-class FileManager {
-    static async createTestCaseDirectory(): Promise<string> {
-        const testcaseDir = path.join(__dirname, 'testcases');
-        if (fs.existsSync(testcaseDir)) {
-            fs.rmSync(testcaseDir, { recursive: true });
-        }
-        fs.mkdirSync(testcaseDir, { recursive: true });
-        return testcaseDir;
-    }
-
-    static async createFile(
-        workspaceFolders: readonly vscode.WorkspaceFolder[] | undefined,
-        fileName: string,
-        fileContent: string
-    ): Promise<void> {
-        const folder = workspaceFolders?.[0];
-        const filePath = folder
-            ? path.join(folder.uri.fsPath, fileName)
-            : path.join(await this.getFolderFromDialog(), fileName);
-
-        fs.writeFileSync(filePath, fileContent);
-        const document = await vscode.workspace.openTextDocument(filePath);
-        await vscode.window.showTextDocument(document, vscode.ViewColumn.Two);
-    }
-
-    static async saveTestCase(dir: string, inputCounter: number, input: string, output: string): Promise<void> {
-        fs.writeFileSync(path.join(dir, `input_${inputCounter}.txt`), input);
-        fs.writeFileSync(path.join(dir, `output_${inputCounter}.txt`), output);
-    }
-
-    private static async getFolderFromDialog(): Promise<string> {
-        const folders = await vscode.window.showOpenDialog({ canSelectFolders: true });
-        if (!folders || folders.length === 0) {
-            throw new Error('No folder selected');
-        }
-        return folders[0].fsPath;
-    }
-}
-
-class WebviewContentProvider {
-    static getInitialContent(): string {
-        return `
-            <!DOCTYPE html>
-            <html>
-            <body>
-                <h1>LeetCode Problem Helper</h1>
-                <form onsubmit="submitSlug(event)">
-                    <input type="text" id="slugInput" placeholder="Enter problem slug (e.g., two-sum)" required />
-                    <button type="submit">Load Problem</button>
-                </form>
-                <script>
-                    const vscode = acquireVsCodeApi();
-                    function submitSlug(event) {
-                        event.preventDefault();
-                        const slug = document.getElementById('slugInput').value;
-                        vscode.postMessage({ command: 'submitString', text: slug });
-                    }
-                </script>
-            </body>
-            </html>
-        `;
-    }
-
-    static formatProblemData(data: LeetCodeData): string {
-        const examples = Object.entries(data.examples)
-            .map(([key, example]) => `
-                <h3>${key}</h3>
-                <pre>${example}</pre>
-            `)
-            .join('');
-    
-        return `
-            <!DOCTYPE html>
-            <html>
-            <body>
-                <h1>${data.title}</h1>
-                <div class="difficulty ${data.difficulty.toLowerCase()}">${data.difficulty}</div>
-                <div class="examples">
-                    ${examples}
-                </div>
-                <div class="actions">
-                    <button onclick="openFile('cpp')">Open in C++</button>
-                    <button onclick="openFile('python')">Open in Python</button>
-                    <button onclick="runCppTests()">Run C++ Tests</button>
-                    <button onclick="runPyTests()">Run Python Tests</button>
-                </div>
-                <script>
-                    const vscode = acquireVsCodeApi();
-                    function openFile(language) {
-                        vscode.postMessage({ command: 'openFile', text: language });
-                    }
-                    function runCppTests() {
-                        vscode.postMessage({ command: 'runTests' });
-                    }
-                    function runPyTests() {
-                        vscode.postMessage({ command: 'runPythonTests' });
-                    }
-                </script>
-                <style>
-                    .difficulty {
-                        padding: 4px 8px;
-                        border-radius: 4px;
-                        display: inline-block;
-                        margin: 8px 0;
-                    }
-                    .difficulty.easy { background: #44b444; }
-                    .difficulty.medium { background: #f0ad4e; }
-                    .difficulty.hard { background: #d9534f; }
-                    .examples { margin: 16px 0; }
-                    .actions { margin-top: 16px; }
-                    button { margin-right: 8px; }
-                </style>
-            </body>
-            </html>
-        `;
-    }
-    
-}
-
-class ExtensionManager {
-    private context: vscode.ExtensionContext;
-    private testcaseDir: string | null = null;
-
-    constructor(context: vscode.ExtensionContext) {
-        this.context = context;
-    }
-
-    async handleMessage(message: WebviewMessage, panel: vscode.WebviewPanel): Promise<void> {
-    switch (message.command) {
-        case 'submitString':
-            await this.handleProblemSubmission(message.text || '', panel);
-            break;
-        case 'openFile':
-            await this.openFile(message.text as 'cpp' | 'python');
-            break;
-        case 'runTests':
-            await this.runTests();
-            break;
-        case 'runPythonTests':
-            await this.runPythonTests();
-            break;
-        default:
-            vscode.window.showErrorMessage(`Unknown command: ${message.command}`);
-    }
-}
-
-private async runPythonTests(): Promise<void> {
-    if (!this.testcaseDir) {
-        vscode.window.showErrorMessage('No test cases available. Please load a problem first.');
-        return;
-    }
-
-    const pythonPath = '/home/mir4ge/Desktop/extension/testcases/python3.py';
-    if (!fs.existsSync(pythonPath)) {
-        vscode.window.showErrorMessage('Python solution file not found.');
-        return;
-    }
-
-    try {
-        const pythonScriptPath = '/home/mir4ge/Desktop/extension/src/run_testcases_py.py';
-        const testcasedirect = '/home/mir4ge/Desktop/extension/testcases';
-
-        const results = await this.runPythonTestRunner(pythonScriptPath, testcasedirect, pythonPath);
-        console.log(results);
-        await this.displayTestResults(results);
-    } catch (error) {
-        vscode.window.showErrorMessage(`Error running Python tests: ${error instanceof Error ? error.message : String(error)}`);
-    }
-}
-
-    private async openFile(language: 'cpp' | 'python'): Promise<void> {
-        if (!this.testcaseDir) {
-            vscode.window.showErrorMessage('Please load a problem first.');
-            return;
-        }
-    
-        try {
-            const filePath = path.join('/home/mir4ge/Desktop/extension/testcases', language === 'cpp' ? 'c++.cpp' : 'python3.py');
-
-            if (!fs.existsSync(filePath)) {
-                vscode.window.showErrorMessage(`No ${language.toUpperCase()} solution file found.`);
-                return;
-            }
-    
-            const document = await vscode.workspace.openTextDocument(filePath);
-            await vscode.window.showTextDocument(document, {
-                viewColumn: vscode.ViewColumn.Two,
-                preview: false
-            });
-        } catch (error) {
-            vscode.window.showErrorMessage(`Error opening ${language.toUpperCase()} file: ${error}`);
-        }
-    }
-
-    private async runTests(): Promise<void> {
-        if (!this.testcaseDir) {
-            vscode.window.showErrorMessage('No test cases available. Please load a problem first.');
-            return;
-        }
-
-        const cppPath = '/home/mir4ge/Desktop/extension/testcases/c++.cpp';
-        console.log(cppPath);
-        if (!fs.existsSync(cppPath)) {
-            vscode.window.showErrorMessage('C++ solution file not found.');
-            return;
-        }
-
-        try {
-            const pythonScriptPath = '/home/mir4ge/Desktop/extension/src/run_testcases.py';
-            console.log(pythonScriptPath);
-            const testcasedirect = '/home/mir4ge/Desktop/extension/testcases';
-            const results = await this.runPythonTestRunner(pythonScriptPath, testcasedirect, cppPath);
-            console.log(results);
-            await this.displayTestResults(results);
-        } catch (error) {
-            vscode.window.showErrorMessage(`Error running tests: ${error instanceof Error ? error.message : String(error)}`);
-        }
-    }
-
-    private async runPythonTestRunner(scriptPath: string, testcaseDir: string, filePath: string): Promise<Record<string, string>> {
-        return new Promise((resolve, reject) => {
-            exec(
-                `python "${scriptPath}" "${testcaseDir}" "${filePath}"`,
-                (err, stdout, stderr) => {
-                    if (err || stderr) {
-                        reject(new Error(err?.message || stderr));
-                        return;
-                    }
-    
-                    try {
-                        const resultsPath = path.join(testcaseDir, 'results.json');
-                        const results = JSON.parse(fs.readFileSync(resultsPath, 'utf-8'));
-                        resolve(results);
-                    } catch (error) {
-                        reject(new Error(`Failed to parse test results: ${error}`));
-                    }
+/** Runs `python -m cph ...` with an argument array (no shell) and parses its one JSON line. */
+function runCli(extensionPath: string, args: string[], timeoutMs: number): Promise<CliResult> {
+    const { python } = settings();
+    return new Promise((resolve, reject) => {
+        execFile(
+            python,
+            ['-m', 'cph', ...args],
+            {
+                env: { ...process.env, PYTHONPATH: path.join(extensionPath, 'python') },
+                maxBuffer: 64 * 1024 * 1024,
+                timeout: timeoutMs,
+            },
+            (err, stdout, stderr) => {
+                try {
+                    resolve(JSON.parse(stdout));
+                } catch {
+                    const reason = err && (err as NodeJS.ErrnoException).code === 'ENOENT'
+                        ? `Python not found at '${python}'. Set cphLeetcode.pythonPath.`
+                        : (stderr || err?.message || 'no output').trim().slice(-2000);
+                    reject(new Error(reason));
                 }
-            );
-        });
-    }
-    
-
-    private async displayTestResults(results: Record<string, any>): Promise<void> {
-        const resultsPanel = vscode.window.createWebviewPanel(
-            'testResults',
-            'Test Results',
-            vscode.ViewColumn.Three,
-            { enableScripts: true }
+            },
         );
-    
-        const formatResult = (testCase: string, status: string, details?: { Expected: string, Got: string }) => {
-            const getColor = (status: string) => {
-                switch (status.toLowerCase()) {
-                    case 'failed': return 'red';
-                    case 'passed': return 'green';
-                    case 'error': return 'yellow';
-                    default: return 'gray';
-                }
-            };
-    
-            const statusColor = getColor(status);
-    
-            if (details) {
-                return `
-                    <div style="border: 1px solid ${statusColor}; padding: 8px; border-radius: 4px; margin: 8px 0;">
-                        <strong style="color: ${statusColor};">${testCase}:</strong> ${status}
-                        <div style="margin-left: 16px;">
-                            <strong>Expected:</strong>
-                            <pre>${details.Expected}</pre>
-                            <strong>Got:</strong>
-                            <pre>${details.Got}</pre>
-                        </div>
-                    </div>
-                `;
-            }
-    
-            return `
-                <div style="border: 1px solid ${statusColor}; padding: 8px; border-radius: 4px; margin: 8px 0;">
-                    <strong style="color: ${statusColor};">${testCase}:</strong> ${status}
-                </div>
-            `;
-        };
-    
-        const resultsHtml = `
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    pre {
-                        background-color: rgb(87, 58, 58);
-                        padding: 8px;
-                        border-radius: 4px;
-                        margin: 4px 0;
-                        white-space: pre-wrap;
-                        word-wrap: break-word;
-                    }
-                    div {
-                        font-family: Arial, sans-serif;
-                    }
-                    h2 {
-                        color: #333;
-                    }
-                </style>
-            </head>
-            <body>
-                <h2>Test Results</h2>
-                ${Object.entries(results)
-                    .filter(([key]) => !key.endsWith('Details'))
-                    .map(([testCase, status]) => {
-                        const detailsKey = `${testCase} Details`;
-                        const details = results[detailsKey] as { Expected: string, Got: string } | undefined;
-                        return formatResult(testCase, status as string, details);
-                    })
-                    .join('')}
-            </body>
-            </html>
-        `;
-    
-        resultsPanel.webview.html = resultsHtml;
+    });
+}
+
+function problemDirOf(file: string): string | undefined {
+    const dir = path.dirname(file);
+    return fs.existsSync(path.join(dir, 'problem.json')) ? dir : undefined;
+}
+
+class ProblemPanel {
+    private static panels = new Map<string, ProblemPanel>();
+    private busy = false;
+    private readonly panel: vscode.WebviewPanel;
+
+    static show(context: vscode.ExtensionContext, dir: string): ProblemPanel {
+        const existing = ProblemPanel.panels.get(dir);
+        if (existing) {
+            existing.panel.reveal(vscode.ViewColumn.Beside, true);
+            existing.sendProblem();
+            return existing;
+        }
+        const created = new ProblemPanel(context, dir);
+        ProblemPanel.panels.set(dir, created);
+        return created;
     }
-    
 
+    private constructor(private readonly context: vscode.ExtensionContext, private readonly dir: string) {
+        const media = vscode.Uri.joinPath(context.extensionUri, 'media');
+        this.panel = vscode.window.createWebviewPanel('cphLeetcode', path.basename(dir), {
+            viewColumn: vscode.ViewColumn.Beside, preserveFocus: true,
+        }, { enableScripts: true, localResourceRoots: [media], retainContextWhenHidden: true });
+        this.panel.webview.html = this.html(media);
+        this.panel.onDidDispose(() => ProblemPanel.panels.delete(this.dir));
+        this.panel.webview.onDidReceiveMessage((msg) => this.onMessage(msg));
+    }
 
-    private async handleProblemSubmission(slug: string, panel: vscode.WebviewPanel): Promise<void> {
+    private html(media: vscode.Uri): string {
+        const nonce = crypto.randomBytes(16).toString('base64');
+        const webview = this.panel.webview;
+        const script = webview.asWebviewUri(vscode.Uri.joinPath(media, 'panel.js'));
+        const style = webview.asWebviewUri(vscode.Uri.joinPath(media, 'panel.css'));
+        return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="${style}">
+<title>LeetCode problem</title>
+</head>
+<body>
+<main id="app" aria-live="polite"></main>
+<script nonce="${nonce}" src="${script}"></script>
+</body>
+</html>`;
+    }
+
+    sendProblem(): void {
+        const read = (name: string) => JSON.parse(fs.readFileSync(path.join(this.dir, name), 'utf-8'));
         try {
-            const pythonOutput = await this.runPythonScript(slug);
-            
-            const jsonMatch = pythonOutput.match(/(\{[\s\S]*\})/);
-            if (!jsonMatch) {
-                throw new Error('No valid JSON found in Python script output');
-            }
-            
-            const problemData: LeetCodeData = JSON.parse(jsonMatch[0]);
-    
-            this.testcaseDir = await FileManager.createTestCaseDirectory();
-    
-            panel.webview.html = WebviewContentProvider.formatProblemData(problemData);
-        } catch (error) {
-            vscode.window.showErrorMessage(`Error: ${error instanceof Error ? error.message : String(error)}`);
+            this.post({ type: 'problem', problem: read('problem.json'), tests: read('tests.json') });
+        } catch (e) {
+            this.post({ type: 'error', message: `Couldn't read this problem's files: ${e instanceof Error ? e.message : e}` });
         }
     }
 
-    private async runPythonScript(slug: string): Promise<string> {
-        const scriptPath = '/home/mir4ge/Desktop/extension/src/script.py';
-        return new Promise((resolve, reject) => {
-            exec(`python "${scriptPath}" --titleSlug "${slug}"`, (err, stdout, stderr) => {
-                if (err) {
-                    reject(new Error(err.message));
-                    return;
-                }
-                
-                if (stderr) {
-                    console.warn('Python script stderr:', stderr);
-                }
-                
-                resolve(stdout);
-            });
+    private post(message: unknown): void {
+        void this.panel.webview.postMessage(message);
+    }
+
+    /** Messages come from the webview: validate every field before acting on it. */
+    private async onMessage(msg: unknown): Promise<void> {
+        if (!msg || typeof msg !== 'object') { return; }
+        const m = msg as Record<string, unknown>;
+        if (m.type === 'ready') { this.sendProblem(); return; }
+        if (m.type === 'open' && typeof m.file === 'string' && EDITABLE.includes(m.file)) {
+            const doc = await vscode.workspace.openTextDocument(path.join(this.dir, m.file));
+            await vscode.window.showTextDocument(doc, vscode.ViewColumn.One);
+            return;
+        }
+        if (m.type === 'openUrl' && typeof m.url === 'string' && PROBLEM_URL.test(m.url)) {
+            await vscode.env.openExternal(vscode.Uri.parse(m.url));
+            return;
+        }
+        if (m.type === 'anyOrder' && typeof m.value === 'boolean') {
+            const file = path.join(this.dir, 'problem.json');
+            const problem = JSON.parse(fs.readFileSync(file, 'utf-8'));
+            problem.anyOrder = m.value;
+            fs.writeFileSync(file, JSON.stringify(problem, null, 2));
+            return;
+        }
+        if (m.type === 'addTest' && Array.isArray(m.input) && m.input.every((x) => typeof x === 'string')
+            && typeof m.output === 'string') {
+            const file = path.join(this.dir, 'tests.json');
+            const tests = JSON.parse(fs.readFileSync(file, 'utf-8')) as unknown[];
+            tests.push({ input: m.input, output: m.output });
+            fs.writeFileSync(file, JSON.stringify(tests, null, 2));
+            this.sendProblem();
+            vscode.window.showInformationMessage(`Added test ${tests.length} to tests.json.`);
+            return;
+        }
+        const lang = LANGS.find((l) => l === m.lang);
+        if (m.type === 'run' && lang) { await this.run(lang, m.file === 'brute' ? 'brute' : 'solution'); }
+        if (m.type === 'stress' && lang) { await this.stress(lang); }
+    }
+
+    private async saveOpenFiles(): Promise<void> {
+        await Promise.all(vscode.workspace.textDocuments
+            .filter((d) => d.isDirty && path.dirname(d.uri.fsPath) === this.dir)
+            .map((d) => d.save()));
+    }
+
+    run(lang: Lang, file: 'solution' | 'brute' = 'solution'): Promise<CliResult | undefined> {
+        return this.exclusive('run', lang, () => {
+            const s = settings();
+            const tests = JSON.parse(fs.readFileSync(path.join(this.dir, 'tests.json'), 'utf-8')) as unknown[];
+            return runCli(this.context.extensionPath, ['run', this.dir, lang, '--file', file,
+                '--time-limit', String(s.timeLimitMs), '--memory-limit', String(s.memoryLimitMb),
+                '--compiler', s.compiler, '--python', s.python],
+                120_000 + tests.length * (s.timeLimitMs + 1000));
         });
     }
+
+    stress(lang: Lang): Promise<CliResult | undefined> {
+        return this.exclusive('stress', lang, () => {
+            const s = settings();
+            return runCli(this.context.extensionPath, ['stress', this.dir, lang,
+                '--rounds', String(s.stressRounds), '--time-limit', String(s.timeLimitMs),
+                '--memory-limit', String(s.memoryLimitMb), '--compiler', s.compiler, '--python', s.python],
+                180_000 + s.stressRounds * (6 * s.timeLimitMs + 1000));
+        });
+    }
+
+    /** One job at a time per problem; the panel shows progress and the outcome. */
+    private async exclusive(kind: 'run' | 'stress', lang: Lang, job: () => Promise<CliResult>): Promise<CliResult | undefined> {
+        if (this.busy) {
+            vscode.window.showInformationMessage('Still running the previous job for this problem.');
+            return undefined;
+        }
+        this.busy = true;
+        this.post({ type: 'busy', kind, lang });
+        try {
+            await this.saveOpenFiles();
+            const result = await job();
+            this.post({ type: kind === 'run' ? 'results' : 'stressResult', lang, result });
+            return result;
+        } catch (e) {
+            const message = e instanceof Error ? e.message : String(e);
+            this.post({ type: 'error', message });
+            vscode.window.showErrorMessage(`LeetCode ${kind} failed: ${message}`);
+            return { error: message };
+        } finally {
+            this.busy = false;
+            this.post({ type: 'idle' });
+        }
+    }
+}
+
+function activeProblem(): { dir: string; lang: Lang; file: 'solution' | 'brute' } | undefined {
+    const doc = vscode.window.activeTextEditor?.document;
+    const dir = doc && problemDirOf(doc.uri.fsPath);
+    const m = doc && /^(solution|brute)\.(cpp|py)$/.exec(path.basename(doc.uri.fsPath));
+    if (!dir || !m) {
+        vscode.window.showWarningMessage('Open a solution.cpp or solution.py from a leetcode/<problem> folder first.');
+        return undefined;
+    }
+    return { dir, lang: m[2] === 'cpp' ? 'cpp' : 'python', file: m[1] as 'solution' | 'brute' };
 }
 
 export function activate(context: vscode.ExtensionContext): void {
-    const manager = new ExtensionManager(context);
-
     context.subscriptions.push(
-        vscode.commands.registerCommand(EXTENSION_COMMANDS.SHOW_WEBVIEW, () => {
-            const panel = vscode.window.createWebviewPanel(
-                'leetcodeHelper',
-                'LeetCode Helper',
-                vscode.ViewColumn.One,
-                {
-                    enableScripts: true
-                }
+        vscode.commands.registerCommand('cphLeetcode.openProblem', async (slugArg?: string) => {
+            const folder = vscode.workspace.workspaceFolders?.[0];
+            if (!folder) {
+                vscode.window.showErrorMessage('Open a folder first: problems are saved under leetcode/<problem> in it.');
+                return undefined;
+            }
+            const slug = slugArg ?? await vscode.window.showInputBox({
+                prompt: 'LeetCode problem slug or URL',
+                placeHolder: 'two-sum or https://leetcode.com/problems/two-sum/',
+                ignoreFocusOut: true,
+            });
+            if (!slug) { return undefined; }
+            const result = await vscode.window.withProgress(
+                { location: vscode.ProgressLocation.Notification, title: `Fetching ${slug}…` },
+                () => runCli(context.extensionPath, ['fetch', slug, folder.uri.fsPath], 60_000)
+                    .catch((e: Error): CliResult => ({ error: e.message })),
             );
-
-            panel.webview.html = WebviewContentProvider.getInitialContent();
-            panel.webview.onDidReceiveMessage(
-                (message) => manager.handleMessage(message, panel),
-                undefined,
-                context.subscriptions
-            );
-        })
+            if (result.error) {
+                vscode.window.showErrorMessage(String(result.error));
+                return result;
+            }
+            const dir = String(result.folder);
+            const doc = await vscode.workspace.openTextDocument(path.join(dir, 'solution.cpp'));
+            await vscode.window.showTextDocument(doc, vscode.ViewColumn.One);
+            ProblemPanel.show(context, dir);
+            return result;
+        }),
+        vscode.commands.registerCommand('cphLeetcode.runTests', () => {
+            const active = activeProblem();
+            return active && ProblemPanel.show(context, active.dir).run(active.lang, active.file);
+        }),
+        vscode.commands.registerCommand('cphLeetcode.stressTest', () => {
+            const active = activeProblem();
+            return active && ProblemPanel.show(context, active.dir).stress(active.lang);
+        }),
     );
 }
 
